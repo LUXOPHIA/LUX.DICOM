@@ -5,15 +5,19 @@
 ///// LUX.DICOM の単体テスト（コンソール）
 ///// ・失敗があれば NG 行を表示し、終了コード 1 を返す。
 
-uses System.SysUtils,
+uses System.SysUtils, System.IOUtils,
      LUX.DICOM.core   in '..\..\Core\LUX.DICOM.core.pas'    ,
      LUX.DICOM.VRs    in '..\..\Core\LUX.DICOM.VRs.pas'     ,
      LUX.DICOM.Syntax in '..\..\Core\LUX.DICOM.Syntax.pas'  ,
+     LUX.DICOM.Source in '..\..\IO\LUX.DICOM.Source.pas'    ,
      LUX.DICOM.Datset in '..\..\Model\LUX.DICOM.Datset.pas' ,
+     LUX.DICOM.Reader in '..\..\IO\LUX.DICOM.Reader.pas'    ,
      LUX.DICOM.Charse in '..\..\Core\LUX.DICOM.Charse.pas'  ,
      LUX.DICOM.Dictio in '..\..\Dictio\LUX.DICOM.Dictio.pas',
      LUX.DICOM.Tags   in '..\..\Dictio\LUX.DICOM.Tags.pas'  ,
-     LUX.DICOM.UIDs   in '..\..\Dictio\LUX.DICOM.UIDs.pas'  ;
+     LUX.DICOM.UIDs   in '..\..\Dictio\LUX.DICOM.UIDs.pas'  ,
+     LUX.DICOM.Pixels in '..\..\Pixels\LUX.DICOM.Pixels.pas',
+     LUX.DICOM.Codecs in '..\..\Codecs\LUX.DICOM.Codecs.pas';
 
 var
    _PassN :Integer = 0;
@@ -161,6 +165,107 @@ end;
 
 //------------------------------------------------------------------------------
 
+function ParseBytes( const B_:TBytes; const Strict_:Boolean = False ) :TdcmReader;
+var
+   T :String;
+begin
+     T := TPath.Combine( TPath.GetTempPath, 'dcmTest.tmp.dcm' );
+
+     TFile.WriteAllBytes( T, B_ );
+
+     Result := TdcmReader.Create( Strict_ );
+
+     Result.LoadFromFile( T );
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TestReader;
+var
+   B :TBytes;
+   R :TdcmReader;
+   E :TdcmElement;
+begin
+     ///// Implicit VR の生データセット（プリアンブル無し）: (0008,0060) CS 'CR', (0028,0010) US 3000
+
+     B := TBytes.Create( $08,$00, $60,$00, $02,$00,$00,$00, Ord('C'),Ord('R'),
+                         $28,$00, $10,$00, $02,$00,$00,$00, $B8,$0B );
+
+     R := ParseBytes( B );
+
+     try
+          Check( R.Issues.Count > 0                                 , 'Reader: プリアンブル無しを Issue 記録'   );
+          Check( R.Body.GetText( $0008, $0060 ) = 'CR'              , 'Reader: Implicit の値'                  );
+          Check( R.Body.GetInt( $0028, $0010 ) = 3000               , 'Reader: Implicit の US 値'              );
+
+          E := R.Body.Find( $0028, $0010 );
+
+          Check( Assigned( E ) and ( E.VR = vrUS )                  , 'Reader: Implicit VR の辞書解決'         );
+     finally
+          R.Free;
+     end;
+
+     ///// ネストした未定義長 SQ（Explicit）: (0008,1140) SQ { Item { (0008,1155) UI '1.2' } }
+
+     B := TBytes.Create( $08,$00, $40,$11, Ord('S'),Ord('Q'), $00,$00, $FF,$FF,$FF,$FF,
+                           $FE,$FF, $00,$E0, $FF,$FF,$FF,$FF,
+                             $08,$00, $55,$11, Ord('U'),Ord('I'), $04,$00, Ord('1'),Ord('.'),Ord('2'),$00,
+                           $FE,$FF, $0D,$E0, $00,$00,$00,$00,
+                         $FE,$FF, $DD,$E0, $00,$00,$00,$00 );
+
+     R := ParseBytes( B );
+
+     try
+          E := R.Body.Find( $0008, $1140 );
+
+          Check( ( E is TdcmSequence ) and ( TdcmSequence( E ).Count = 1 ), 'Reader: 未定義長 SQ の再帰'  );
+
+          if E is TdcmSequence then
+               Check( TdcmSequence( E )[ 0 ].GetText( $0008, $1155 ) = '1.2', 'Reader: SQ 内の要素値' );
+     finally
+          R.Free;
+     end;
+
+     ///// 途中で切れたファイル: Lenient は Issue 記録で完走、Strict は例外
+
+     B := TBytes.Create( $08,$00, $60,$00, $02,$00,$00,$00, Ord('C'),Ord('R'),
+                         $28,$00, $10,$00, $10,$00,$00,$00, $B8 );
+
+     R := ParseBytes( B );
+
+     try
+          Check( R.Issues.Count > 0, 'Reader: 切断ファイルを Issue 記録（Lenient）' );
+     finally
+          R.Free;
+     end;
+
+     try
+          R := ParseBytes( B, True );
+
+          R.Free;
+
+          Check( False, 'Reader: 切断ファイルで例外（Strict）' );
+     except
+          on EdcmError do Check( True, 'Reader: 切断ファイルで例外（Strict）' );
+     end;
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TestExtract;
+begin
+     ///// 12bit stored / HighBit 11 / 上位にゴミ（オーバーレイ）入り
+
+     Check( ExtractStored( $F800, 12, 11, False ) = $0800, 'Extract: HighBit 上位のゴミ除去'   );
+     Check( ExtractStored( $0800, 12, 11, True  ) = -2048, 'Extract: 符号拡張（12bit 負数）'   );
+     Check( ExtractStored( $07FF, 12, 11, True  ) =  2047, 'Extract: 符号拡張（12bit 正数）'   );
+     Check( ExtractStored( $FFFF, 16, 15, True  ) =    -1, 'Extract: 16bit 符号あり'          );
+     Check( ExtractStored( $FFFF, 16, 15, False ) = 65535, 'Extract: 16bit 符号なし'          );
+     Check( ExtractStored( $3FFF, 14, 13, False ) = 16383, 'Extract: 14bit（DX 相当）'        );
+end;
+
+//------------------------------------------------------------------------------
+
 begin
      try
           TestTag;
@@ -168,6 +273,8 @@ begin
           TestSyntax;
           TestDictio;
           TestCharse;
+          TestReader;
+          TestExtract;
 
           Writeln( Format( 'PASS: %d / FAIL: %d', [ _PassN, _FailN ] ) );
 
