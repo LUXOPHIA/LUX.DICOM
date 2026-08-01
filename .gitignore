@@ -56,3 +56,6 @@ __recovery/
 
 # Castalia statistics file
 *.stat
+
+# DICOM 規格の DocBook ソース（DictGen が使用。公式サイトから都度取得する）
+Tools/DictGen/part06.xml

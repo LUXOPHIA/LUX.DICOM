@@ -149,6 +149,11 @@ var
    ///// 　ISO 2022 対応版に差し替える（コーデック登録制と同じプラグイン継ぎ目）。
    _DecodeText_ : function( const Buff_:TBytes; const Charse_:String ) :String;
 
+   ///// Implicit VR の解決フック
+   ///// ・既定は nil（未解決＝vrNone のまま）。LUX.DICOM.Dictio が initialization で
+   ///// 　辞書実装に差し替える。Reader はこれで Implicit の定義長 SQ も見分けられる。
+   _ResolveVR_ : function( const Tag_:TdcmTag ) :TdcmVRKind;
+
 //$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$【 R O U T I N E 】
 
 implementation //############################################################### ■

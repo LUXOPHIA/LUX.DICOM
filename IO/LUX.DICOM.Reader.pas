@@ -274,6 +274,10 @@ begin
 
           ReadVRVL( Explic_, VR, RawVR, VL );
 
+          ///// Implicit VR は辞書フックで解決する（未登録は vrNone のまま＝UN 相当で保全）
+
+          if ( VR = vrNone ) and Assigned( _ResolveVR_ ) then VR := _ResolveVR_( T );
+
           ///// 未定義長（$FFFFFFFF）
 
           if VL = $FFFFFFFF then
