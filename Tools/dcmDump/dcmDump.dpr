@@ -5,13 +5,18 @@
 ///// DICOM ファイルのタグダンプ（新パーサの検証ツール）
 ///// 使い方: dcmDump <file1.dcm> [file2.dcm ...]
 
-uses System.SysUtils,
+uses Winapi.Windows,
+     System.SysUtils,
      LUX.DICOM.core   in '..\..\Core\LUX.DICOM.core.pas'   ,
      LUX.DICOM.VRs    in '..\..\Core\LUX.DICOM.VRs.pas'    ,
      LUX.DICOM.Syntax in '..\..\Core\LUX.DICOM.Syntax.pas' ,
      LUX.DICOM.Source in '..\..\IO\LUX.DICOM.Source.pas'   ,
      LUX.DICOM.Datset in '..\..\Model\LUX.DICOM.Datset.pas',
-     LUX.DICOM.Reader in '..\..\IO\LUX.DICOM.Reader.pas'   ;
+     LUX.DICOM.Reader in '..\..\IO\LUX.DICOM.Reader.pas'   ,
+     LUX.DICOM.Charse in '..\..\Core\LUX.DICOM.Charse.pas' ,
+     LUX.DICOM.Dictio in '..\..\Dictio\LUX.DICOM.Dictio.pas',
+     LUX.DICOM.Tags   in '..\..\Dictio\LUX.DICOM.Tags.pas'  ,
+     LUX.DICOM.UIDs   in '..\..\Dictio\LUX.DICOM.UIDs.pas'  ;
 
 procedure DumpDataset( const Dataset_:TdcmDataset; const Indent_:Integer );
 var
@@ -31,7 +36,7 @@ begin
 
           if S.Length > 64 then S := S.Substring( 0, 64 ) + '…';
 
-          Writeln( Format( '%s%s %s %8s  %s', [ P, E.Tag.ToString, E.VRText, L, S ] ) );
+          Writeln( Format( '%s%s %s %8s  %-32s %s', [ P, E.Tag.ToString, E.VRText, L, DictKeyword( E.Tag ), S ] ) );
 
           if E is TdcmSequence then
           begin
@@ -96,6 +101,11 @@ var
    I :Integer;
 
 begin
+     ///// リダイレクト・パイプ経由でも文字化けしないよう UTF-8 で出力する
+
+     SetConsoleOutputCP( CP_UTF8 );
+     SetTextCodePage( Output, CP_UTF8 );
+
      if ParamCount = 0 then
      begin
           Writeln( '使い方: dcmDump <file1.dcm> [file2.dcm ...]' );  Halt( 1 );
